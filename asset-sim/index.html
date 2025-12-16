@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+
+  <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6266464978231128"
+     crossorigin="anonymous"></script>
+  
+  <title>資産形成モンテカルロシミュレーション</title>
+
+  <link rel="manifest" href="manifest.json">
+
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 12px;
+      background: #fafafa;
+    }
+
+    h2 {
+      text-align: center;
+    }
+
+    .card {
+      background: white;
+      padding: 16px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      margin-bottom: 16px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 12px;
+    }
+
+    label {
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    input {
+      padding: 10px;
+      font-size: 16px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      font-size: 16px;
+      border-radius: 8px;
+      border: none;
+      background: #4f7cff;
+      color: white;
+      cursor: pointer;
+    }
+
+    button:active {
+      opacity: 0.8;
+    }
+
+    .chart-wrapper {
+      overflow-x: auto;
+    }
+
+    canvas {
+      min-width: 600px;
+    }
+
+    .table-wrapper {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+
+    th, td {
+      border: 1px solid #ccc;
+      padding: 6px 8px;
+      text-align: right;
+      white-space: nowrap;
+    }
+
+    th {
+      background: #f0f0f0;
+    }
+
+    th:first-child,
+    td:first-child {
+      text-align: center;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h2>資産形成シミュレーション</h2>
+
+  <div class="card">
+    <div class="field">
+      <label>毎月の投資額（円）</label>
+      <input id="monthly" type="number" value="50000">
+    </div>
+
+    <div class="field">
+      <label>年平均利率（%）</label>
+      <input id="rate" type="number" value="5">
+    </div>
+
+    <div class="field">
+      <label>年ボラティリティ（%）</label>
+      <input id="volatility" type="number" value="10">
+    </div>
+
+    <div class="field">
+      <label>投資年数</label>
+      <input id="years" type="number" value="30">
+    </div>
+
+    <div class="field">
+      <label>シミュレーション回数</label>
+      <input id="simulations" type="number" value="1000">
+    </div>
+
+    <button onclick="calculate()">計算する</button>
+  </div>
+
+  <div class="card chart-wrapper">
+    <canvas id="assetChart" height="400"></canvas>
+  </div>
+
+  <div class="card table-wrapper">
+    <div id="tableContainer"></div>
+  </div>
+
+  <script>
+    let chart = null;
+
+    // 正規乱数（Box–Muller）
+    function randomNormal(mean, std) {
+      let u = 0, v = 0;
+      while (u === 0) u = Math.random();
+      while (v === 0) v = Math.random();
+      return mean + std * Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+
+    function percentile(arr, p) {
+      const idx = Math.floor(p * arr.length);
+      return arr[idx];
+    }
+
+    function calculate() {
+      const monthly = Number(document.getElementById("monthly").value);
+      const mu = Number(document.getElementById("rate").value) / 100;
+      const sigma = Number(document.getElementById("volatility").value) / 100;
+      const years = Number(document.getElementById("years").value);
+      const sims = Number(document.getElementById("simulations").value);
+
+      const months = years * 12;
+
+      const paths = [];
+
+      // モンテカルロシミュレーション
+      for (let i = 0; i < sims; i++) {
+        let value = 0;
+        const path = [];
+
+        for (let m = 1; m <= months; m++) {
+          const annualRate = randomNormal(mu, sigma);
+          const monthlyRate = annualRate / 12;
+
+          // 期初払い
+          value = (value + monthly) * (1 + monthlyRate);
+          path.push(value);
+        }
+        paths.push(path);
+      }
+
+      const labels = [];
+      const p10 = [];
+      const p50 = [];
+      const p90 = [];
+
+      // 年末時点ごとの分位点
+      for (let y = 1; y <= years; y++) {
+        const m = y * 12 - 1;
+        const values = paths.map(p => p[m]).sort((a, b) => a - b);
+
+        labels.push(y + "年");
+        p10.push(percentile(values, 0.10));
+        p50.push(percentile(values, 0.50));
+        p90.push(percentile(values, 0.90));
+      }
+
+      drawChart(labels, p10, p50, p90);
+      drawTable(labels, p10, p50, p90);
+    }
+
+    function drawChart(labels, p10, p50, p90) {
+      const ctx = document.getElementById("assetChart").getContext("2d");
+      if (chart) chart.destroy();
+
+      chart = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: "10%分位",
+              data: p10,
+              borderWidth: 1,
+              fill: false
+            },
+            {
+              label: "中央値",
+              data: p50,
+              borderWidth: 2,
+              fill: "-1",
+              backgroundColor: "rgba(0, 255, 100, 0.25)"
+            },
+            {
+              label: "90%分位",
+              data: p90,
+              borderWidth: 1,
+              fill: "-1",
+              backgroundColor: "rgba(100, 149, 237, 0.25)"
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { position: "top" }
+          },
+          scales: {
+            y: {
+              ticks: {
+                callback: v => v.toLocaleString() + "円"
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function drawTable(labels, p10, p50, p90) {
+      let html = `
+        <h3>各年時点の資産額（分位点）</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>年数</th>
+              <th>10%分位</th>
+              <th>中央値</th>
+              <th>90%分位</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+
+      for (let i = 0; i < labels.length; i++) {
+        html += `
+          <tr>
+            <td>${labels[i]}</td>
+            <td>¥${Math.round(p10[i]).toLocaleString()}</td>
+            <td>¥${Math.round(p50[i]).toLocaleString()}</td>
+            <td>¥${Math.round(p90[i]).toLocaleString()}</td>
+          </tr>
+        `;
+      }
+
+      html += `
+          </tbody>
+        </table>
+      `;
+
+      document.getElementById("tableContainer").innerHTML = html;
+    }
+  </script>
+
+  <hr>
+
+  <section id="about">
+    <h2>このサイトについて</h2>
+    <p>
+      毎月の積立額と利回りの不確実性をもとに、
+      モンテカルロシミュレーションを用いて
+      将来の資産推移を可視化するWebアプリです。
+    </p>
+  </section>
+
+  <section id="disclaimer">
+    <h2>免責事項</h2>
+    <p>
+      本サイトは情報提供を目的としており、
+      投資成果や利益を保証するものではありません。
+      最終的な投資判断はご自身の責任で行ってください。
+    </p>
+  </section>
+
+  <section id="contact">
+    <h2>お問い合わせ</h2>
+    <p>
+      メール：mianqiang150@gmail.com
+    </p>
+  </section>
+
+  <footer>
+    <p style="text-align:center; font-size:12px; color:#666;">
+      © 2025 Asset Simulation
+    </p>
+  </footer>
+
+</body>
+</html>
